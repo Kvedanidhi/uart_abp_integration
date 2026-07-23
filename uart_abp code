@@ -1,0 +1,353 @@
+module baud_generator(
+  input clk,
+  input reset,
+  output reg baud_tick,
+  output reg s_tick
+);
+  reg [12:0] tx_counter;
+  reg [8:0] rx_counter; 
+
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      tx_counter <= 0;
+      rx_counter <= 0;
+      baud_tick <= 1'b0;
+      s_tick <= 1'b0;
+    end else begin
+      if (tx_counter == 13'd5207) begin 
+        tx_counter <= 0;
+        baud_tick <= 1'b1;
+      end else begin
+        tx_counter <= tx_counter + 1;
+        baud_tick <= 1'b0;
+      end
+
+      if (rx_counter == 9'd324) begin 
+        rx_counter <= 0;
+        s_tick <= 1'b1;
+      end else begin
+        rx_counter <= rx_counter + 1;
+        s_tick <= 1'b0;
+      end
+    end
+  end
+endmodule
+
+module uart_tx(
+  input clk,
+  input reset,
+  input tx_start,
+  input baud_tick,
+  input [7:0] tx_data,
+  output reg tx,
+  output reg tx_busy
+);
+  localparam IDLE=2'b00, START=2'b01, DATA=2'b10, STOP=2'b11;
+  reg [1:0] cs, ns;
+  reg [2:0] bit_idx;      
+  reg [7:0] saved_data;   
+
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      cs <= IDLE;
+      bit_idx <= 3'b000;
+      saved_data <= 8'b00000000;
+    end else begin
+      cs <= ns;
+      if (cs == IDLE && tx_start == 1'b1) begin
+         saved_data <= tx_data;
+         bit_idx <= 3'b000;
+      end
+      else if (cs == DATA && baud_tick == 1'b1) begin
+         bit_idx <= bit_idx + 1;
+      end
+    end
+  end
+
+  always @(*) begin
+    ns = cs;
+    tx = 1'b1;       
+    tx_busy = 1'b1;  
+    case(cs)
+      IDLE: begin
+        tx = 1'b1;
+        tx_busy = 1'b0; 
+        if (tx_start == 1'b1) begin
+            ns = START;
+        end
+      end
+      START: begin
+        tx = 1'b0; 
+        if (baud_tick == 1'b1) begin
+            ns = DATA;
+        end
+      end
+      DATA: begin
+        tx = saved_data[bit_idx]; 
+        if (baud_tick == 1'b1 && bit_idx == 3'b111) begin
+            ns = STOP;
+        end
+      end
+      STOP: begin
+        tx = 1'b1; 
+        if (baud_tick == 1'b1) begin
+            ns = IDLE;
+        end
+      end
+      default: begin
+          ns = IDLE;
+      end
+    endcase
+  end
+endmodule
+
+module uart_rx(
+  input clk,
+  input reset,
+  input rx,             
+  input s_tick,         
+  output reg rx_done,   
+  output reg [7:0] rx_data 
+);
+  localparam IDLE=2'b00, START=2'b01, DATA=2'b10, STOP=2'b11;
+  reg [1:0] cs, ns;
+  reg [3:0] s_cnt; 
+  reg [2:0] n_cnt; 
+  reg [7:0] b_reg; 
+
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      cs <= IDLE;
+      s_cnt <= 0; n_cnt <= 0; b_reg <= 0;
+    end else begin
+      cs <= ns;
+      case (cs)
+        IDLE: begin
+            if (rx == 1'b0) begin
+                s_cnt <= 0;
+            end
+        end
+        START: begin
+          if (s_tick == 1'b1) begin
+            if (s_cnt == 4'd7) begin 
+                s_cnt <= 0; 
+                n_cnt <= 0; 
+            end else begin
+                s_cnt <= s_cnt + 1;
+            end
+          end
+        end
+        DATA: begin
+          if (s_tick == 1'b1) begin
+            if (s_cnt == 4'd15) begin 
+              s_cnt <= 0; 
+              b_reg <= {rx, b_reg[7:1]}; 
+              n_cnt <= n_cnt + 1; 
+            end else begin
+                s_cnt <= s_cnt + 1;
+            end
+          end
+        end
+        STOP: begin
+          if (s_tick == 1'b1) begin
+            if (s_cnt == 4'd15) begin
+                s_cnt <= 0; 
+            end else begin
+                s_cnt <= s_cnt + 1;
+            end
+          end
+        end
+      endcase
+    end
+  end
+
+  always @(*) begin
+    ns = cs;
+    rx_done = 1'b0;
+    rx_data = b_reg; 
+    case (cs)
+      IDLE: begin
+          if (rx == 1'b0) begin
+              ns = START;
+          end
+      end
+      START: begin
+          if (s_tick == 1'b1 && s_cnt == 4'd7) begin
+              if (rx == 1'b0) begin
+                  ns = DATA;
+              end else begin
+                  ns = IDLE;
+              end
+          end
+      end
+      DATA: begin
+          if (s_tick == 1'b1 && s_cnt == 4'd15 && n_cnt == 3'd7) begin
+              ns = STOP;
+          end
+      end
+      STOP: begin
+          if (s_tick == 1'b1 && s_cnt == 4'd15) begin 
+              rx_done = 1'b1; 
+              ns = IDLE; 
+          end
+      end
+      default: begin
+          ns = IDLE;
+      end
+    endcase
+  end
+endmodule
+
+module uart_top (
+  input clk,               
+  input reset,             
+  input tx_start,          
+  input [7:0] tx_data,     
+  output tx_busy,          
+  output tx_pin,           
+  input rx_pin,            
+  output rx_done_tick,     
+  output [7:0] rx_data     
+);
+
+  wire internal_baud_tick;
+  wire internal_s_tick;
+
+  baud_generator baud_block (
+    .clk(clk),
+    .reset(reset),
+    .baud_tick(internal_baud_tick), 
+    .s_tick(internal_s_tick)        
+  );
+
+  uart_tx tx_block (
+    .clk(clk),
+    .reset(reset),
+    .tx_start(tx_start),
+    .baud_tick(internal_baud_tick), 
+    .tx_data(tx_data),
+    .tx(tx_pin),                    
+    .tx_busy(tx_busy)               
+  );
+
+  uart_rx rx_block (
+    .clk(clk),
+    .reset(reset),
+    .rx(rx_pin),                    
+    .s_tick(internal_s_tick),       
+    .rx_done(rx_done_tick),         
+    .rx_data(rx_data)               
+  );
+
+endmodule
+
+module uart_apb_slave (
+  input clk,
+  input reset,
+  input psel,
+  input penable,
+  input pwrite,
+  input [3:0] paddr,
+  input [7:0] pwdata,
+  output reg [7:0] prdata,
+  output reg pready,
+  input [7:0] rx_data,
+  input rx_done_tick,
+  input tx_busy,
+  output reg [7:0] tx_data,
+  output reg tx_start
+);
+
+always @(posedge clk or posedge reset) begin
+  if (reset) begin
+    tx_data  <= 8'b0;
+    tx_start <= 1'b0;
+    prdata   <= 8'b0;
+    pready   <= 1'b0;
+  end
+  else begin
+    // defaults every cycle
+    tx_start <= 1'b0;
+    pready   <= 1'b0;
+    prdata   <= 8'b0;
+
+    if (psel && penable) begin
+      pready <= 1'b1;
+
+      if (pwrite) begin
+        // WRITE transaction
+        if (paddr == 4'h0) begin
+          tx_data  <= pwdata;   // load byte into UART TX
+          tx_start <= 1'b1;    // pulse tx_start for one cycle
+        end
+      end
+      else begin
+        // READ transaction
+        if (paddr == 4'h4) begin
+          prdata <= rx_data;   // give received byte to master
+        end
+        else if (paddr == 4'h8) begin
+          prdata <= {6'b0, rx_done_tick, tx_busy}; // status
+        end
+      end
+    end
+  end
+end
+
+endmodule
+
+module apb_uart_system (
+  // APB Bus Interface
+  input clk,
+  input reset,
+  input psel,
+  input penable,
+  input pwrite,
+  input [3:0] paddr,
+  input [7:0] pwdata,
+  output [7:0] prdata,
+  output pready,
+  
+  // UART External Pins
+  input rx_pin,
+  output tx_pin
+);
+
+  wire [7:0] tx_data_int;
+  wire tx_start_int;
+  wire tx_busy_int;
+  wire [7:0] rx_data_int;
+  wire rx_done_tick_int;
+
+  // 1. Instantiate the APB Wrapper
+  uart_apb_slave apb_bridge (
+    .clk(clk),
+    .reset(reset),
+    .psel(psel),
+    .penable(penable),
+    .pwrite(pwrite),
+    .paddr(paddr),
+    .pwdata(pwdata),
+    .prdata(prdata),
+    .pready(pready),
+    .rx_data(rx_data_int),
+    .rx_done_tick(rx_done_tick_int),
+    .tx_busy(tx_busy_int),
+    .tx_data(tx_data_int),
+    .tx_start(tx_start_int)
+  );
+
+  // 2. Instantiate the UART Hardware
+  uart_top uart_hw (
+    .clk(clk),
+    .reset(reset),
+    .tx_start(tx_start_int),
+    .tx_data(tx_data_int),
+    .tx_busy(tx_busy_int),
+    .tx_pin(tx_pin),
+    .rx_pin(rx_pin),
+    .rx_done_tick(rx_done_tick_int),
+    .rx_data(rx_data_int)
+  );
+
+endmodule
