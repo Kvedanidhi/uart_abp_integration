@@ -43,6 +43,9 @@ Validation: The APB master successfully reads the looped-back data via the APB b
 run.ys code :
 
 read_verilog design.sv
+
 hierarchy -check -top apb_uart_system
+
 proc; opt; memory; opt; fsm; opt
+
 select apb_uart_system
