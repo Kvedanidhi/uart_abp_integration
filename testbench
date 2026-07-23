@@ -1,0 +1,107 @@
+`timescale 1ns/1ps
+
+module tb_apb_uart_system;
+
+  reg clk;
+  reg reset;
+  reg psel;
+  reg penable;
+  reg pwrite;
+  reg [3:0] paddr;
+  reg [7:0] pwdata;
+  
+  wire [7:0] prdata;
+  wire pready;
+  
+ 
+  wire tx_pin;
+  wire rx_pin;
+
+  
+  assign rx_pin = tx_pin;
+
+  
+  apb_uart_system dut (
+    .clk(clk),
+    .reset(reset),
+    .psel(psel),
+    .penable(penable),
+    .pwrite(pwrite),
+    .paddr(paddr),
+    .pwdata(pwdata),
+    .prdata(prdata),
+    .pready(pready),
+    .rx_pin(rx_pin),
+    .tx_pin(tx_pin)
+  );
+
+  
+  always #10 clk = ~clk;
+
+  initial begin
+    $dumpfile("dump_soc.vcd");
+    
+    $dumpvars(0, tb_apb_uart_system);
+  end
+
+  initial begin
+    
+    clk = 0;
+    reset = 1; 
+    psel = 0;
+    penable = 0;
+    pwrite = 0;
+    paddr = 4'h0;
+    pwdata = 8'h00;
+
+    
+    #100 reset = 0;
+    #100;
+
+    @(posedge clk);
+    psel = 1;
+    pwrite = 1;
+    paddr = 4'h0;
+    pwdata = 8'hA5;
+    
+    @(posedge clk);
+    penable = 1;
+    
+    @(posedge clk);
+    psel = 0;
+    penable = 0;
+    pwrite = 0;
+
+    
+    #1500000; 
+
+   
+    @(posedge clk);
+    psel = 1;
+    pwrite = 0;
+    paddr = 4'h4;
+    
+    @(posedge clk);
+    penable = 1;
+    
+    @(posedge clk);
+    
+    
+    if (prdata == 8'hA5) begin
+      $display("==================================================");
+      $display(" SOC SUCCESS! APB Master received 0xA5 from loopback");
+      $display("==================================================");
+    end else begin
+      $display("==================================================");
+      $display(" SOC FAIL! Expected 0xA5, got %h", prdata);
+      $display("==================================================");
+    end
+
+    psel = 0;
+    penable = 0;
+    
+    #100;
+    $finish;
+  end
+
+endmodule
