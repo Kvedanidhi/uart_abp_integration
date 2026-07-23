@@ -266,7 +266,7 @@ always @(posedge clk or posedge reset) begin
     pready   <= 1'b0;
   end
   else begin
-    // defaults every cycle
+    
     tx_start <= 1'b0;
     pready   <= 1'b0;
     prdata   <= 8'b0;
@@ -275,19 +275,19 @@ always @(posedge clk or posedge reset) begin
       pready <= 1'b1;
 
       if (pwrite) begin
-        // WRITE transaction
+        
         if (paddr == 4'h0) begin
-          tx_data  <= pwdata;   // load byte into UART TX
-          tx_start <= 1'b1;    // pulse tx_start for one cycle
+          tx_data  <= pwdata;   
+          tx_start <= 1'b1;   
         end
       end
       else begin
-        // READ transaction
+       
         if (paddr == 4'h4) begin
-          prdata <= rx_data;   // give received byte to master
+          prdata <= rx_data; 
         end
         else if (paddr == 4'h8) begin
-          prdata <= {6'b0, rx_done_tick, tx_busy}; // status
+          prdata <= {6'b0, rx_done_tick, tx_busy}; 
         end
       end
     end
@@ -297,7 +297,7 @@ end
 endmodule
 
 module apb_uart_system (
-  // APB Bus Interface
+  
   input clk,
   input reset,
   input psel,
@@ -308,7 +308,7 @@ module apb_uart_system (
   output [7:0] prdata,
   output pready,
   
-  // UART External Pins
+ 
   input rx_pin,
   output tx_pin
 );
@@ -319,7 +319,6 @@ module apb_uart_system (
   wire [7:0] rx_data_int;
   wire rx_done_tick_int;
 
-  // 1. Instantiate the APB Wrapper
   uart_apb_slave apb_bridge (
     .clk(clk),
     .reset(reset),
@@ -337,7 +336,7 @@ module apb_uart_system (
     .tx_start(tx_start_int)
   );
 
-  // 2. Instantiate the UART Hardware
+  
   uart_top uart_hw (
     .clk(clk),
     .reset(reset),
