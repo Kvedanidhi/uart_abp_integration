@@ -39,3 +39,17 @@ Stimulus: The testbench drives the psel, penable, and pwrite APB control signals
 Transmission: The UART hardware successfully serializes the data at a 9600 baud rate.
 
 Validation: The APB master successfully reads the looped-back data via the APB bridge, confirming bit-level functional correctness and outputting SOC SUCCESS.
+
+run.ys code :
+# 1. Read the design file
+read_verilog design.sv
+
+# 2. Tell Yosys exactly which module is the top of the hierarchy
+hierarchy -check -top apb_uart_system
+
+# 3. Perform standard optimizations
+proc; opt; memory; opt; fsm; opt
+
+# 4. Select ONLY the wrapper module. 
+# This prevents EDA Playground's automatic 'show' command from crashing!
+select apb_uart_system
