@@ -1,51 +1,89 @@
-# uart_abp_integration
+# APB-to-UART Integration Subsystem
 
-Overview
-This repository contains the complete RTL design, synthesis scripts, and functional verification environment for an APB-to-UART bridge. The system integrates standard UART transmission and reception blocks with an APB (Advanced Peripheral Bus) slave interface, allowing a master processor to seamlessly read and write serial data.
+A synthesizable APB-to-UART bridge implemented in Verilog/SystemVerilog. The design connects a 32-bit APB interface to an 8-bit UART interface and includes Yosys-based structural synthesis plus functional loopback verification.
 
-The RTL is strictly modular, structurally verified, and optimized for physical design handoff.
+## Overview
 
-Key Features
-Standard Protocol Integration: Bridges 32-bit APB master transactions to an 8-bit UART serial interface.
+This repository contains the RTL, synthesis flow, and verification environment for a compact APB-to-UART subsystem. The design is organized into clearly defined modules to preserve hierarchy during synthesis and simplify integration into a larger SoC or ASIC/FPGA flow.
 
-Modular Architecture: Clean separation of the APB bridge logic and the core UART hardware (uart_tx, uart_rx, baud_generator).
+### Highlights
 
-Open-Source Synthesis: Includes a custom run.ys Yosys script configured to establish exact module hierarchy and generate accurate RTL schematics without structural errors or unwanted latches.
+- 32-bit APB slave interface with UART data-path integration
+- 8-bit UART transmitter and receiver
+- Configurable baud-generation block
+- Clean top-level integration through `apb_uart_system`
+- Yosys synthesis script with explicit hierarchy checking
+- Functional UART loopback verification at 9600 baud
+- Synthesizable RTL with no intentional latches
 
-Physical Design Ready: The top-level wrapper (apb_uart_system) is cleanly synthesized and ready to be pushed through the back-end flow (floorplanning, placement, and routing).
+## Architecture
 
-System Hierarchy
-The design is encapsulated within a single top-level wrapper to ensure clean hierarchical boundaries during synthesis:
+The design uses the following hierarchy:
 
-apb_uart_system (Top-Level Integration)
+```text
+apb_uart_system
+└── uart_apb_slave
+    └── uart_top
+        ├── baud_generator
+        ├── uart_tx
+        └── uart_rx
+```
 
-uart_apb_slave (APB bus interface and control state machine)
+### Module Responsibilities
 
-uart_top (UART hardware block)
+| Module | Responsibility |
+| --- | --- |
+| `apb_uart_system` | Top-level APB-to-UART integration wrapper |
+| `uart_apb_slave` | APB transaction handling, control, and status logic |
+| `uart_top` | UART subsystem integration |
+| `baud_generator` | UART timing and baud-rate generation |
+| `uart_tx` | Parallel-to-serial UART transmission |
+| `uart_rx` | Serial-to-parallel UART reception |
 
-baud_generator
+## Verification
 
-uart_tx (Serializer)
+The testbench `tb_apb_uart_system.sv` validates the complete data path using a physical loopback configuration:
 
-uart_rx (Deserializer)
+1. The top-level `tx_pin` is connected directly to `rx_pin`.
+2. The APB stimulus drives a write transaction containing `0xA5`.
+3. The UART transmitter serializes the payload at 9600 baud.
+4. The receiver captures and reconstructs the looped-back data.
+5. The APB master reads the received value through the bridge.
+6. The testbench reports `SOC SUCCESS` when the loopback transaction passes.
 
-Verification Environment
-The testbench (tb_apb_uart_system.sv) rigorously proves out the functional logic using a physical loopback methodology:
+This verifies the APB control path, UART serialization and deserialization, baud timing, and end-to-end data integrity.
 
-Setup: The tx_pin is directly wired to the rx_pin at the top level.
+## Synthesis
 
-Stimulus: The testbench drives the psel, penable, and pwrite APB control signals to initiate a write transaction containing a 0xA5 test payload.
+The repository includes `run.ys`, a Yosys synthesis script that checks and preserves the intended top-level hierarchy:
 
-Transmission: The UART hardware successfully serializes the data at a 9600 baud rate.
-
-Validation: The APB master successfully reads the looped-back data via the APB bridge, confirming bit-level functional correctness and outputting SOC SUCCESS.
-
-run.ys code :
-
+```yosys
 read_verilog design.sv
-
 hierarchy -check -top apb_uart_system
 
 proc; opt; memory; opt; fsm; opt
 
 select apb_uart_system
+```
+
+The synthesis flow is intended to provide a clean structural representation of the design for downstream analysis and physical-design workflows, including floorplanning, placement, and routing.
+
+## Repository Contents
+
+| File | Description |
+| --- | --- |
+| `design.sv` | Synthesizable APB-to-UART RTL design |
+| `tb_apb_uart_system.sv` | Functional loopback testbench |
+| `run.ys` | Yosys synthesis and hierarchy-check script |
+
+## Design Notes
+
+- The APB interface is 32 bits wide.
+- UART data is 8 bits wide.
+- The functional verification scenario uses a 9600-baud UART configuration.
+- The top-level module is `apb_uart_system`.
+- The RTL hierarchy is intentionally maintained to support structural inspection and integration.
+
+## Status
+
+The subsystem is functionally verified using APB-driven UART loopback and is structured for synthesis-oriented development.
